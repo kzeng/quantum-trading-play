@@ -5,14 +5,14 @@ import matplotlib.pyplot as plt
 
 
 # 从本地读取数据
-df = pd.read_csv("./data/000988_2020.csv")
+df = pd.read_csv("./data/000988_2025.csv")
 df['datetime'] = pd.to_datetime(df['datetime'])
 
 # 定义双均线策略
 class DoubleMAStrategy(bt.Strategy):
     params = (
-        ("short_period", 3),
-        ("long_period", 10),
+        ("short_period", 7),
+        ("long_period", 14),
         ("print_log", True),
     )
 
