@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 
 # 从本地读取数据
-df = pd.read_csv("600519_2021.csv")
+df = pd.read_csv("./data/000988_2020.csv")
 df['datetime'] = pd.to_datetime(df['datetime'])
 
 # 定义双均线策略

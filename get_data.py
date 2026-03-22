@@ -3,7 +3,9 @@ import pandas as pd
 
 
 # define stock code list
-scocket_code_list = ["600519"]  # 贵州茅台
+# scocket_code_list = ["600519"]  # 贵州茅台
+scocket_code_list = ["000988"]  # 华工科技
+
 
 # define date range list (start_date, end_date)
 date_range_list = [
@@ -13,6 +15,7 @@ date_range_list = [
     ("2023-01-01", "2023-12-31"),
     ("2024-01-01", "2024-12-31"),
     ("2025-01-01", "2025-12-31"),
+    # ("2026-01-01", "2026-12-31"),
 
 ]
 
@@ -21,7 +24,12 @@ lg = bs.login()
 print("登录成功")
 
 for scocket_code in scocket_code_list:
-    full_code = f"sh.{scocket_code}"  # 目前假设为上交所股票
+    if scocket_code.startswith("6"):
+        full_code = f"sh.{scocket_code}"
+    elif scocket_code.startswith("0") or scocket_code.startswith("3"):
+        full_code = f"sz.{scocket_code}"
+    else:
+        full_code = f"sh.{scocket_code}"  # 目前假设为上交所股票
 
     for start_date, end_date in date_range_list:
         print(f"\n开始获取 {full_code} {start_date} 到 {end_date} 的日线数据...")
@@ -86,7 +94,7 @@ for scocket_code in scocket_code_list:
         file_name = f"{scocket_code}_{year}.csv"
 
         # 保存到本地
-        df.to_csv(file_name, index=False)
+        df.to_csv("./data/"+file_name, index=False)
         print(f"\n数据已保存到 {file_name}")
 
 # 登出系统
