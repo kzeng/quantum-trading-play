@@ -87,6 +87,56 @@ def convert_to_df(bars: list[dict]) -> pd.DataFrame:
     return df
 
 
+def get_prev_close_from_csv(code: str, data_dir: str = "data") -> float | None:
+    """从本地日线 CSV 中获取最近一个交易日的收盘价，作为涨跌幅基准价。
+
+    假设 data 目录下已有例如 000988_2020.csv~000988_2026.csv 这样的日线文件。
+    """
+
+    if not os.path.isdir(data_dir):
+        return None
+
+    today = date.today()
+    last_trade_date: date | None = None
+    last_close: float | None = None
+
+    for fname in os.listdir(data_dir):
+        if not fname.startswith(f"{code}_"):
+            continue
+        if "mins" in fname:
+            # 跳过分钟级文件
+            continue
+
+        path = os.path.join(data_dir, fname)
+        try:
+            df = pd.read_csv(path)
+        except Exception:
+            continue
+
+        if "datetime" not in df.columns or "close" not in df.columns:
+            continue
+
+        try:
+            df["datetime"] = pd.to_datetime(df["datetime"])
+        except Exception:
+            continue
+
+        # 只看今天之前的日线，取最新一条
+        df_prev = df[df["datetime"].dt.date < today]
+        if df_prev.empty:
+            continue
+
+        row = df_prev.sort_values("datetime").iloc[-1]
+        trade_date: date = row["datetime"].date()
+        close_val = float(row["close"])
+
+        if last_trade_date is None or trade_date > last_trade_date:
+            last_trade_date = trade_date
+            last_close = close_val
+
+    return last_close
+
+
 def is_trading_time(now: datetime) -> bool:
     """判断是否在交易时间段内（不含集合竞价，只按连续竞价时段）。"""
 
@@ -129,6 +179,13 @@ def main() -> None:
     today = date.today()
     print(f"开始处理 {region}.{STOCK_CODE} {today} 的每分钟数据...")
 
+    # 先尝试从本地日线数据获取昨日收盘价，作为涨跌幅基准价
+    prev_close = get_prev_close_from_csv(STOCK_CODE)
+    if prev_close is not None:
+        print(f"昨日收盘价(用于涨跌幅基准): {prev_close}")
+    else:
+        print("未能从本地日线数据获取昨日收盘价，将在盘中第一笔数据的开盘价作为基准。")
+
     now = datetime.now()
 
     # 如果已经收盘：直接获取当日全部分钟数据并保存
@@ -161,7 +218,8 @@ def main() -> None:
 
     all_df = pd.DataFrame()
     seen_times: set[datetime] = set()
-    base_price: float | None = None  # 用于计算涨跌幅的基准价（当天第一笔的开盘价）
+    # 用于计算涨跌幅的基准价：优先使用昨日收盘价，退而求其次用当天第一笔开盘价
+    base_price: float | None = prev_close
 
     # 先等待到下一个整数分钟再开始循环
     sleep_until_next_minute()
@@ -202,7 +260,7 @@ def main() -> None:
             all_df.drop_duplicates(subset=["datetime"], inplace=True)
             all_df.sort_values("datetime", inplace=True)
 
-            # 初始化基准价：当天第一笔分钟K线的开盘价
+            # 如果尚未初始化基准价：使用当天第一笔分钟K线的开盘价
             if base_price is None:
                 first_row = all_df.iloc[0]
                 base_price = float(first_row["open"]) if first_row["open"] != 0 else None

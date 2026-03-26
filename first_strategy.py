@@ -1,12 +1,32 @@
+import os
 import pandas as pd
 import backtrader as bt
 import matplotlib.pyplot as plt
 
 
+def load_000988_data(data_dir: str = "./data") -> pd.DataFrame:
+    """加载 000988 在 2020-2026 年的所有 CSV，并合并为一个 DataFrame。"""
+    frames = []
+    for year in range(2020, 2026):
+        file_name = f"000988_{year}.csv"
+        path = os.path.join(data_dir, file_name)
+        if not os.path.exists(path):
+            continue
+        df = pd.read_csv(path)
+        df["datetime"] = pd.to_datetime(df["datetime"])
+        frames.append(df)
 
-# 从本地读取数据
-df = pd.read_csv("./data/000988_2025.csv")
-df['datetime'] = pd.to_datetime(df['datetime'])
+    if not frames:
+        raise FileNotFoundError("未找到任何 000988_2020-2026 的数据文件")
+
+    data = pd.concat(frames, ignore_index=True)
+    data.sort_values("datetime", inplace=True)
+    data.reset_index(drop=True, inplace=True)
+    return data
+
+
+# 从本地读取 2020-2026 全部数据
+df = load_000988_data()
 
 # 定义双均线策略
 class DoubleMAStrategy(bt.Strategy):
