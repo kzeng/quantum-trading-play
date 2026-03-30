@@ -214,6 +214,6 @@ for scocket_code in scocket_code_list:
         df.to_csv("./data/"+file_name, index=False)
         print(f"\nData saved to {file_name}")
 
-    # Log out of Baostock
+# Log out of Baostock
 bs.logout()
-    print("Logout succeeded")
+print("Logout succeeded")

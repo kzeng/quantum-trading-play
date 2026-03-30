@@ -2,8 +2,14 @@
 
 # Quantum Trading Play
 
+## Docs
 
-## Create VENV  
+- ### https://www.backtrader.com/docu/
+- ### https://www.poloxue.com/backtrader/
+
+
+
+## Create Venv  
 
 创建名为 qt-venv 的环境，指定 Python 3.12
 
