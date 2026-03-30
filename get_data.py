@@ -26,7 +26,10 @@ date_range_list = [
 
 
 def fetch_daily_kline_itick(code: str, region: str, limit: int = 1000, end_ts_ms: int | None = None):
-    """从 itick 获取最近 limit 根日 K 线数据，可指定结束时间戳 et（毫秒）。kType=8 表示日线。"""
+    """Fetch the most recent `limit` daily K-line bars from itick.
+
+    Optionally specify the end timestamp `et` in milliseconds. `kType=8` means daily bars.
+    """
 
     params: dict[str, object] = {
         "region": region,
@@ -46,22 +49,25 @@ def fetch_daily_kline_itick(code: str, region: str, limit: int = 1000, end_ts_ms
         resp = requests.get(API_URL, params=params, headers=headers, timeout=10)
         resp.raise_for_status()
     except requests.exceptions.Timeout:
-        print("[itick] 日K 请求超时，本次跳过")
+        print("[itick] Daily K-line request timed out, skipping this round")
         return []
     except requests.exceptions.RequestException as exc:
-        print(f"[itick] 日K 请求异常: {exc}")
+        print(f"[itick] Daily K-line request error: {exc}")
         return []
 
     data = resp.json()
     if data.get("code") != 0:
-        print(f"[itick] 日K 返回错误: {data}")
+        print(f"[itick] Daily K-line response error: {data}")
         return []
 
     return data.get("data", []) or []
 
 
 def fetch_daily_kline_range_itick(code: str, region: str, start_dt: datetime, end_dt: datetime, limit_per_request: int = 1000) -> pd.DataFrame:
-    """通过多次日 K 请求，获取 [start_dt, end_dt] 区间内的所有日线，并返回与 000988_2026.csv 一致格式的 DataFrame。"""
+    """Fetch all daily K-line bars between [start_dt, end_dt] via multiple requests.
+
+    Returns a DataFrame in the same format as 000988_2026.csv.
+    """
 
     start_ts_ms = int(start_dt.replace(tzinfo=timezone.utc).timestamp() * 1000)
     end_ts_ms = int(end_dt.replace(tzinfo=timezone.utc).timestamp() * 1000)
@@ -86,7 +92,7 @@ def fetch_daily_kline_range_itick(code: str, region: str, start_dt: datetime, en
     if not all_bars:
         return pd.DataFrame()
 
-    # 过滤到区间内
+    # Filter bars to the target time range
     filtered = [b for b in all_bars if start_ts_ms <= b["t"] <= end_ts_ms]
     if not filtered:
         return pd.DataFrame()
@@ -100,7 +106,7 @@ def fetch_daily_kline_range_itick(code: str, region: str, start_dt: datetime, en
 
         rows.append(
             {
-                "date": dt,  # 先用 date，后面与 Baostock 流程统一
+                "date": dt,  # use date here and unify with the Baostock workflow later
                 "open": float(bar["o"]),
                 "high": float(bar.get("h", bar["o"])),
                 "low": float(bar.get("l", bar["o"])),
@@ -118,9 +124,9 @@ def fetch_daily_kline_range_itick(code: str, region: str, start_dt: datetime, en
     df.reset_index(drop=True, inplace=True)
     return df
 
-# 登录系统
+# Log in to Baostock
 lg = bs.login()
-print("登录成功")
+print("Login succeeded")
 
 for scocket_code in scocket_code_list:
     if scocket_code.startswith("6"):
@@ -128,10 +134,10 @@ for scocket_code in scocket_code_list:
     elif scocket_code.startswith("0") or scocket_code.startswith("3"):
         full_code = f"sz.{scocket_code}"
     else:
-        full_code = f"sh.{scocket_code}"  # 目前假设为上交所股票
+        full_code = f"sh.{scocket_code}"  # currently assume it is an SSE stock
 
     for start_date, end_date in date_range_list:
-        print(f"\n开始获取 {full_code} {start_date} 到 {end_date} 的日线数据...")
+        print(f"\nStart fetching daily bars for {full_code} from {start_date} to {end_date}...")
 
         rs = bs.query_history_k_data_plus(
             full_code,
@@ -139,37 +145,37 @@ for scocket_code in scocket_code_list:
             start_date=start_date,
             end_date=end_date,
             frequency="d",
-            adjustflag="2",  # 2表示前复权
+            adjustflag="2",  # 2 = forward-adjusted prices
         )
 
-        # 打印结果
-        print("请求数据返回码:", rs.error_code)
-        print("请求数据返回信息:", rs.error_msg)
+        # Print query result status
+        print("Query return code:", rs.error_code)
+        print("Query return message:", rs.error_msg)
 
-        # 转换为DataFrame
+        # Convert to DataFrame
         data_list: list[list[str]] = []
         while (rs.error_code == "0") & rs.next():
             data_list.append(rs.get_row_data())
 
         if data_list:
-            # 使用 Baostock 返回的数据
+            # Use Baostock returned data
             df = pd.DataFrame(data_list, columns=rs.fields)
         else:
-            # Baostock 没有返回数据：尝试用 itick 日K 直接生成日线
-            print("Baostock 未返回数据，尝试通过 itick 日K 生成日线...")
+            # Baostock returned no data: try generating daily bars from itick
+            print("Baostock returned no data, trying to generate daily bars from itick...")
 
             start_dt = datetime.strptime(start_date, "%Y-%m-%d")
             end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
 
-            # itick 使用不带交易所前缀的代码 + region
+            # itick uses codes without exchange prefix plus a region value
             region = "SH" if scocket_code.startswith("6") else "SZ"
             df = fetch_daily_kline_range_itick(scocket_code, region=region, start_dt=start_dt, end_dt=end_dt)
 
             if df.empty:
-                print("itick 日K 也未能获取到该区间的数据，跳过。")
+                print("itick daily K-line also failed to fetch data for this range, skipping.")
                 continue
 
-        # 转换数据类型
+        # Cast data types
         df["open"] = df["open"].astype(float)
         df["high"] = df["high"].astype(float)
         df["low"] = df["low"].astype(float)
@@ -177,7 +183,7 @@ for scocket_code in scocket_code_list:
         df["volume"] = df["volume"].astype(float)
         df["date"] = pd.to_datetime(df["date"])
 
-        # 重命名列名以匹配backtrader
+        # Rename columns to match backtrader
         df.rename(
             columns={
                 "date": "datetime",
@@ -190,24 +196,24 @@ for scocket_code in scocket_code_list:
             inplace=True,
         )
 
-        # 按日期排序
+        # Sort by date
         df.sort_values("datetime", inplace=True)
         df.reset_index(drop=True, inplace=True)
 
-        # 查看数据
-        print("\n数据预览:")
+        # Inspect data
+        print("\nData preview:")
         print(df.head())
-        print(f"\n总共获取 {len(df)} 条数据")
-        print(f"日期范围: {df['datetime'].min()} 到 {df['datetime'].max()}")
+        print(f"\nTotal rows fetched: {len(df)}")
+        print(f"Date range: {df['datetime'].min()} to {df['datetime'].max()}")
 
-        # 根据起始日期中的年份生成文件名
+        # Generate file name based on the year in start_date
         year = start_date[:4]
         file_name = f"{scocket_code}_{year}.csv"
 
-        # 保存到本地
+        # Save to local CSV
         df.to_csv("./data/"+file_name, index=False)
-        print(f"\n数据已保存到 {file_name}")
+        print(f"\nData saved to {file_name}")
 
-# 登出系统
+    # Log out of Baostock
 bs.logout()
-print("登出成功")
+    print("Logout succeeded")

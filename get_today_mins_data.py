@@ -88,9 +88,10 @@ def convert_to_df(bars: list[dict]) -> pd.DataFrame:
 
 
 def get_prev_close_from_csv(code: str, data_dir: str = "data") -> float | None:
-    """从本地日线 CSV 中获取最近一个交易日的收盘价，作为涨跌幅基准价。
+    """Get the most recent trading day's close from local daily CSVs.
 
-    假设 data 目录下已有例如 000988_2020.csv~000988_2026.csv 这样的日线文件。
+    Used as the reference price for percentage change. Assumes the data
+    directory already contains daily files such as 000988_2020.csv ~ 000988_2026.csv.
     """
 
     if not os.path.isdir(data_dir):
@@ -104,7 +105,7 @@ def get_prev_close_from_csv(code: str, data_dir: str = "data") -> float | None:
         if not fname.startswith(f"{code}_"):
             continue
         if "mins" in fname:
-            # 跳过分钟级文件
+            # Skip minute-level files
             continue
 
         path = os.path.join(data_dir, fname)
@@ -121,7 +122,7 @@ def get_prev_close_from_csv(code: str, data_dir: str = "data") -> float | None:
         except Exception:
             continue
 
-        # 只看今天之前的日线，取最新一条
+        # Only consider daily bars before today and pick the latest one
         df_prev = df[df["datetime"].dt.date < today]
         if df_prev.empty:
             continue
@@ -138,7 +139,10 @@ def get_prev_close_from_csv(code: str, data_dir: str = "data") -> float | None:
 
 
 def is_trading_time(now: datetime) -> bool:
-    """判断是否在交易时间段内（不含集合竞价，只按连续竞价时段）。"""
+    """Return True if current time is within continuous trading hours.
+
+    Does not include call auction; only continuous trading sessions.
+    """
 
     t = now.time()
     morning_start = dtime(9, 30)
@@ -152,13 +156,13 @@ def is_trading_time(now: datetime) -> bool:
 
 
 def is_after_close(now: datetime) -> bool:
-    """是否已经收盘（15:00 之后）。"""
+    """Return True if market is already closed (after 15:00)."""
 
     return now.time() >= dtime(15, 0)
 
 
 def sleep_until_next_minute() -> None:
-    """睡眠到下一个整数分钟。"""
+    """Sleep until the next whole minute boundary."""
 
     now = datetime.now()
     next_minute = (now + timedelta(minutes=1)).replace(second=0, microsecond=0)
@@ -177,48 +181,48 @@ def main() -> None:
         region = "SH"
 
     today = date.today()
-    print(f"开始处理 {region}.{STOCK_CODE} {today} 的每分钟数据...")
+    print(f"Start processing per-minute data for {region}.{STOCK_CODE} on {today}...")
 
-    # 先尝试从本地日线数据获取昨日收盘价，作为涨跌幅基准价
+    # First try to get yesterday's close from local daily data as reference price
     prev_close = get_prev_close_from_csv(STOCK_CODE)
     if prev_close is not None:
-        print(f"昨日收盘价(用于涨跌幅基准): {prev_close}")
+        print(f"Previous close (reference for percentage change): {prev_close}")
     else:
-        print("未能从本地日线数据获取昨日收盘价，将在盘中第一笔数据的开盘价作为基准。")
+        print("Failed to get previous close from local daily data; will use the first intraday open as reference.")
 
     now = datetime.now()
 
-    # 如果已经收盘：直接获取当日全部分钟数据并保存
+    # If market has already closed: fetch full-day minute data and save immediately
     if is_after_close(now):
-        print("已经过收盘时间，直接获取当日全部数据并保存...")
+        print("Market is already closed; fetching full intraday data and saving...")
         bars = fetch_recent_min_kline(STOCK_CODE, region=region, limit=5000)
         if not bars:
-            print("API 没有返回分钟数据")
+            print("API did not return any minute data")
             return
 
         df = convert_to_df(bars)
         if df.empty:
-            print("转换为 DataFrame 后无数据")
+            print("No data after converting to DataFrame")
             return
 
         df_today = df[df["datetime"].dt.date == today]
         if df_today.empty:
-            print(f"未获取到 {today} 的分钟数据")
+            print(f"No minute data obtained for {today}")
             return
 
         os.makedirs("data", exist_ok=True)
         file_name = f"{STOCK_CODE}_{today.strftime('%Y%m%d')}_mins.csv"
         out_path = os.path.join("data", file_name)
         df_today.to_csv(out_path, index=False)
-        print(f"今日分钟数据已保存: {out_path} （{len(df_today)} 条）")
+        print(f"Today's minute data saved: {out_path} ({len(df_today)} rows)")
         return
 
-    # 交易时间内：每个整数分钟请求一次，安静运行，收盘后统一保存
-    print("当前在交易时间内，将每个整数分钟请求一次数据，直到收盘（打印每笔数据）...")
+    # During trading hours: request once per whole minute, then save at close
+    print("Currently in trading hours; will request once per whole minute until close (printing each bar)...")
 
     all_df = pd.DataFrame()
     seen_times: set[datetime] = set()
-    # 用于计算涨跌幅的基准价：优先使用昨日收盘价，退而求其次用当天第一笔开盘价
+    # Reference price for percentage change: prefer previous close, fall back to first intraday open
     base_price: float | None = prev_close
 
     # 先等待到下一个整数分钟再开始循环
@@ -230,7 +234,7 @@ def main() -> None:
             break
 
         if not is_trading_time(now):
-            # 午休等非交易时间，直接等待下一分钟
+            # Non-trading periods (e.g. lunch break): just wait for the next minute
             sleep_until_next_minute()
             continue
 
@@ -252,20 +256,20 @@ def main() -> None:
         new_rows = df_today[~df_today["datetime"].isin(seen_times)].copy()
 
         if not new_rows.empty:
-            # 更新已见时间
+            # Update set of seen timestamps
             seen_times.update(new_rows["datetime"].tolist())
 
-            # 累积所有数据用于最后保存
+            # Accumulate all data for final save
             all_df = pd.concat([all_df, new_rows], ignore_index=True)
             all_df.drop_duplicates(subset=["datetime"], inplace=True)
             all_df.sort_values("datetime", inplace=True)
 
-            # 如果尚未初始化基准价：使用当天第一笔分钟K线的开盘价
+            # If reference price not yet initialized: use the first intraday open
             if base_price is None:
                 first_row = all_df.iloc[0]
                 base_price = float(first_row["open"]) if first_row["open"] != 0 else None
 
-            # 逐行打印本次新增的分钟数据（不带额外标题和列名），并在末尾追加涨跌幅%
+            # Print each newly added minute bar without extra headers and append percentage change
             for _, row in new_rows.iterrows():
                 close_price = float(row["close"])
                 if base_price and base_price != 0:
@@ -280,18 +284,18 @@ def main() -> None:
                     f"{row['close']} {row['volume']} {pct_str}"
                 )
 
-        # 等待到下一个整数分钟
+        # Wait until the next whole minute
         sleep_until_next_minute()
 
     if all_df.empty:
-        print("整个交易时段内未累计到任何数据，不保存文件。")
+        print("No data accumulated during the entire trading session; no file will be saved.")
         return
 
     os.makedirs("data", exist_ok=True)
     file_name = f"{STOCK_CODE}_{today.strftime('%Y%m%d')}_mins.csv"
     out_path = os.path.join("data", file_name)
     all_df.to_csv(out_path, index=False)
-    print(f"\n收盘，累计分钟数据已保存: {out_path} （{len(all_df)} 条）")
+    print(f"\nMarket closed; accumulated minute data saved: {out_path} ({len(all_df)} rows)")
 
 
 if __name__ == "__main__":

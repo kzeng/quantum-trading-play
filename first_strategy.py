@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 
 def load_000988_data(data_dir: str = "./data") -> pd.DataFrame:
-    """加载 000988 在 2020-2026 年的所有 CSV，并合并为一个 DataFrame。"""
+    """Load all CSV files for 000988 from 2020-2026 and merge into a single DataFrame."""
     frames = []
     for year in range(2020, 2026):
         file_name = f"000988_{year}.csv"
@@ -17,7 +17,7 @@ def load_000988_data(data_dir: str = "./data") -> pd.DataFrame:
         frames.append(df)
 
     if not frames:
-        raise FileNotFoundError("未找到任何 000988_2020-2026 的数据文件")
+        raise FileNotFoundError("No 000988_2020-2026 data files were found")
 
     data = pd.concat(frames, ignore_index=True)
     data.sort_values("datetime", inplace=True)
@@ -25,10 +25,10 @@ def load_000988_data(data_dir: str = "./data") -> pd.DataFrame:
     return data
 
 
-# 从本地读取 2020-2026 全部数据
+# Read all 2020-2026 data from local files
 df = load_000988_data()
 
-# 定义双均线策略
+# Define double moving average strategy
 class DoubleMAStrategy(bt.Strategy):
     params = (
         ("short_period", 7),
@@ -56,12 +56,12 @@ class DoubleMAStrategy(bt.Strategy):
             if self.crossover[0] == -1:
                 self.close()
                 if self.params.print_log:
-                    print(f"{self.data.datetime.date()} 卖出，价格 {self.data.close[0]:.2f}")
+                    print(f"{self.data.datetime.date()} Sell at price {self.data.close[0]:.2f}")
 
-# 创建回测引擎
+# Create backtesting engine
 cerebro = bt.Cerebro()
 
-# 加载数据
+# Load data
 data = bt.feeds.PandasData(
     dataname=df,
     datetime='datetime',
@@ -73,17 +73,17 @@ data = bt.feeds.PandasData(
 )
 cerebro.adddata(data)
 
-# 添加策略
+# Add strategy
 cerebro.addstrategy(DoubleMAStrategy)
 
-# 设置初始资金和手续费
+# Set initial cash and commission
 cerebro.broker.setcash(100000.0)
 cerebro.broker.setcommission(commission=0.001)
 
-# 运行回测
-print(f"初始资金: {cerebro.broker.getvalue():.2f}")
+# Run backtest
+print(f"Initial portfolio value: {cerebro.broker.getvalue():.2f}")
 cerebro.run()
-print(f"最终资金: {cerebro.broker.getvalue():.2f}")
+print(f"Final portfolio value: {cerebro.broker.getvalue():.2f}")
 
-# 绘图
+# Plot results
 cerebro.plot()
